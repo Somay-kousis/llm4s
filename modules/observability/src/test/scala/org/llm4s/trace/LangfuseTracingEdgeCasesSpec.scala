@@ -85,7 +85,7 @@ class LangfuseTracingEdgeCasesSpec extends AnyFlatSpec with Matchers {
     event("body")("metadata").obj.contains("usage") shouldBe false
   }
 
-  it should "carry a failed call's billed usage in the ErrorOccurred event's metadata (#2676)" in {
+  it should "carry a failed call's billed usage in the ErrorOccurred record's metadata (#2676)" in {
     val mock    = new MockHttpClient(HttpResponse(200, ""))
     val tracing = makeTracing(mock)
     val error   = TraceEvent.ErrorOccurred(new RuntimeException("filtered"), "chat", usage = Some(TokenUsage(7, 4, 11)))
@@ -95,6 +95,46 @@ class LangfuseTracingEdgeCasesSpec extends AnyFlatSpec with Matchers {
     usage("prompt_tokens").num shouldBe 7
     usage("completion_tokens").num shouldBe 4
     usage("total_tokens").num shouldBe 11
+  }
+
+  // #2698: Langfuse counts usage only on generations, so a failed call that billed tokens is recorded as one
+  it should "record a failed call that billed tokens as an ERROR generation carrying that usage, so cost totals count it" in {
+    val mock    = new MockHttpClient(HttpResponse(200, ""))
+    val tracing = makeTracing(mock)
+    val usage   = TokenUsage(promptTokens = 7, completionTokens = 4, totalTokens = 13, thinkingTokens = Some(2))
+    val error = TraceEvent.ErrorOccurred(
+      new RuntimeException("Gemini stopped the reply: finishReason SAFETY"),
+      "chat",
+      model = Some("gemini-2.5-flash"),
+      usage = Some(usage)
+    )
+
+    tracing.traceEvent(error).isRight shouldBe true
+    val batch = ujson.read(mock.lastBody.get)("batch").arr
+    batch should have size 1 // one record, so the tokens count once
+    val event = batch.head
+    event("type").str shouldBe "generation-create"
+    val body = event("body")
+    body("level").str shouldBe "ERROR"
+    body("statusMessage").str should include("finishReason SAFETY")
+    body("model").str shouldBe "gemini-2.5-flash"
+    body("usage")("input").num shouldBe 7
+    body("usage")("output").num shouldBe 6 // as billed: the completion plus the thinking
+    body("usage")("total").num shouldBe 13
+    body("usage")("unit").str shouldBe "TOKENS"
+    body("metadata")("context").str shouldBe "chat"
+    body("metadata")("error_type").str shouldBe "RuntimeException"
+  }
+
+  it should "leave a failed call that billed nothing as an error event, never a zero-cost generation" in {
+    val mock    = new MockHttpClient(HttpResponse(200, ""))
+    val tracing = makeTracing(mock)
+
+    tracing.traceEvent(TraceEvent.ErrorOccurred(new RuntimeException("boom"), "chat", model = Some("gpt-4o")))
+    val event = ujson.read(mock.lastBody.get)("batch")(0)
+    event("type").str shouldBe "event-create"
+    event("body").obj.contains("usage") shouldBe false
+    event("body").obj.contains("model") shouldBe false
   }
 
   // =========================================================================

@@ -99,7 +99,8 @@ possibly empty or cut short, with the provider's reason as `Other`.
 - `ContentFilteredError.usage` carries the tokens the provider reported for the filtered call, which it bills, on
   both paths and for Gemini and Vertex AI too (#2676). A client's metrics record them, and `TracingLLMClient` puts
   them on the call's `TraceEvent.ErrorOccurred`, whose new last field is `usage: Option[TokenUsage]`; the
-  OpenTelemetry backend reports it as the `chat <model>` span's `gen_ai.usage.*`, Langfuse in the event's metadata.
+  OpenTelemetry backend reports it as the `chat <model>` span's `gen_ai.usage.*`, Langfuse as an `ERROR` generation with that usage (also in its
+  metadata), so the tokens reach Langfuse's totals, and its cost when the error names the model.
   `ContentFilteredError`'s own extractor still binds four fields.
 - A positional pattern on `TraceEvent.ErrorOccurred` gains a field:
   `case TraceEvent.ErrorOccurred(error, context, _, _, _, _, _, _, _, _)`. The `PositionalPatternsGainFields` Scalafix

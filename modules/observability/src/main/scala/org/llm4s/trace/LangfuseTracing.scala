@@ -370,10 +370,12 @@ class LangfuseTracing(
         )
 
       case e: TraceEvent.ErrorOccurred =>
-        ujson.Obj(
+        // Langfuse counts usage only on generations: a failed call that billed tokens (a content-filtered reply,
+        // #2698) is recorded as an ERROR generation with that usage, once; one that billed nothing stays an event
+        val record = ujson.Obj(
           "id"        -> uuid,
           "timestamp" -> now,
-          "type"      -> "event-create",
+          "type"      -> (if (e.usage.isDefined) "generation-create" else "event-create"),
           "body" -> ujson.Obj(
             "id"            -> uuid,
             "timestamp"     -> now,
@@ -401,6 +403,17 @@ class LangfuseTracing(
             }
           )
         )
+        e.usage.foreach { u =>
+          val body = record("body")
+          e.model.foreach(m => body("model") = m)
+          body("usage") = ujson.Obj(
+            "input"  -> u.promptTokens,
+            "output" -> u.totalOutputTokens, // as billed: the completion plus any thinking
+            "total"  -> u.totalTokens,
+            "unit"   -> "TOKENS"
+          )
+        }
+        record
 
       case e: TraceEvent.TokenUsageRecorded =>
         ujson.Obj(

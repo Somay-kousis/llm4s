@@ -190,6 +190,11 @@ val embeddings = EmbeddingClient.from("openai", embeddingConfig).map(_.withTraci
 Only model, embedding and image generation calls (and their failures) are `CLIENT` spans; every other span, such as cost,
 cache, RAG, a plain `Error` or a custom event, is `INTERNAL`.
 
+In Langfuse, a failed call that billed tokens (a content-filtered reply, `TraceEvent.ErrorOccurred` with `usage`) is
+an `ERROR` generation with that usage, so the tokens reach Langfuse's totals; it prices them when the error names the
+model, as it does from `TracingLLMClient(client, tracing, providerConfig)`. A failed call that billed nothing is an
+`ERROR` event.
+
 `gen_ai.provider.name` is the conventions' well-known value where there is one (`gemini` is `gcp.gemini`, `vertexai`
 `gcp.vertex_ai`, `bedrock` `aws.bedrock`, `azure` `azure.ai.openai`, `watsonx` `ibm.watsonx.ai`, `mistral`
 `mistral_ai`, `xai` `x_ai`), else the llm4s provider id (`openai`, `anthropic`, `ollama`, ...). A client reports its
